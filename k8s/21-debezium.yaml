@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debezium
+  namespace: ingestion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: debezium
+  template:
+    metadata:
+      labels:
+        app: debezium
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: connect
+          image: quay.io/debezium/connect:3.5
+          ports:
+            - containerPort: 8083
+          env:
+            - name: BOOTSTRAP_SERVERS
+              value: kafka.ingestion.svc.cluster.local:9092
+            - name: GROUP_ID
+              value: debezium
+            - name: CONFIG_STORAGE_TOPIC
+              value: _connect_configs
+            - name: OFFSET_STORAGE_TOPIC
+              value: _connect_offsets
+            - name: STATUS_STORAGE_TOPIC
+              value: _connect_status
+            - name: CONFIG_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: OFFSET_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: STATUS_STORAGE_REPLICATION_FACTOR
+              value: "1"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8083
+            initialDelaySeconds: 20
+            periodSeconds: 10
+--- 
+apiVersion: v1
+kind: Service
+metadata:
+  name: debezium
+  namespace: ingestion
+spec:
+  selector:
+    app: debezium
+  ports:
+    - port: 8083
