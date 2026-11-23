@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __NAME__
+  namespace: processing
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: spark
+          image: apache/spark:3.5.9-java17-python3
+          command: ["/bin/bash", "-c"]
+          args: ["/opt/spark/bin/spark-submit --master 'local[2]' --driver-memory 1g --conf spark.jars.ivy=/tmp/ivy --packages $SPARK_PACKAGES /opt/jobs/__SCRIPT__"]
+          env:
+            - name: PYTHONPATH
+              value: /opt/jobs
+            - name: AWS_REGION
+              value: us-east-1
+            - name: SPARK_PACKAGES
+              value: org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.11.0,org.apache.iceberg:iceberg-aws-bundle:1.11.0,org.postgresql:postgresql:42.7.4
+          envFrom:
+            - secretRef:
+                name: s3-credentials
+            - secretRef:
+                name: platform-db
+          resources:
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: jobs
+              mountPath: /opt/jobs
+      volumes:
+        - name: jobs
+          configMap:
+            name: spark-jobs

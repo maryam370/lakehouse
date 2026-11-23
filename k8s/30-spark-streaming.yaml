@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spark-checkpoints
+  namespace: processing
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streaming-bronze
+  namespace: processing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+     app: streaming-bronze
+  template:
+    metadata:
+      labels:
+        app: streaming-bronze
+    spec:
+      securityContext:
+        fsGroup: 185
+      containers:
+        - name: spark
+          image: apache/spark:3.5.9-java17-python3
+          command: ["/bin/bash", "-c"]
+          args: ["/opt/spark/bin/spark-submit --master 'local[2]' --driver-memory 1g --conf spark.jars.ivy=/tmp/ivy --packages $SPARK_PACKAGES /opt/jobs/streaming_bronze.py"]
+          env:
+            - name: PYTHONPATH
+              value: /opt/jobs
+            - name: AWS_REGION
+              value: us-east-1
+            - name: SPARK_PACKAGES
+              value: org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.11.0,org.apache.iceberg:iceberg-aws-bundle:1.11.0,org.postgresql:postgresql:42.7.4,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.9
+          envFrom:
+            - secretRef:
+                name: s3-credentials
+            - secretRef:
+                name: platform-db
+          resources:
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: jobs
+              mountPath: /opt/jobs
+            - name: checkpoints
+              mountPath: /checkpoints
+      volumes:
+        - name: jobs
+          configMap:
+            name: spark-jobs
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: spark-checkpoints
+        
