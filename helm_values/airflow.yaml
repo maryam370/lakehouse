@@ -1,0 +1,39 @@
+
+executor: KubernetesExecutor
+
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+triggerer:
+  enabled: false
+
+statsd:
+  enabled: false
+
+data:
+  metadataConnection:
+    protocol: postgresql
+    host: platform-db.lakehouse.svc.cluster.local
+    port: 5432
+    db: airflow
+    user: platform
+    pass: platform123
+    sslmode: disable
+
+dags:
+  gitSync:
+    enabled: true
+    repo: https://github.com/maryam370/lakehouse.git
+    branch: master
+    ref: master
+    subPath: airflow/dags
+    period: 60s
+
+createUserJob:
+  useHelmHooks: false
+
+migrateDatabaseJob:
+  useHelmHooks: false

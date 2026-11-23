@@ -26,7 +26,7 @@ def spark_task(task_id, script):
         container_resources=k8s.V1ResourceRequirements(limits={'memory': '2Gi'}),
         in_cluster=True,
         get_logs=True,
-        on_finish_action='delete_pod',
+        on_finish_action='delete_succeeded_pod',
     )
 
 with DAG(

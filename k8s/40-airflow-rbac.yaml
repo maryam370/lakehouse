@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: airflow-pod-runner
+  namespace: processing
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "events"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-pod-runner
+  namespace: processing
+subjects:
+  - kind: ServiceAccount
+    name: airflow-worker
+    namespace: orchestration
+roleRef:
+  kind: Role
+  name: airflow-pod-runner
+  apiGroup: rbac.authorization.k8s.io
