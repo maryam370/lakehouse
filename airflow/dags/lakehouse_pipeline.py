@@ -12,7 +12,7 @@ def spark_task(task_id, script):
         task_id=task_id,
         name=task_id.replace('_', '-'),
         namespace='processing',
-        image='apache/spark:3.5.9-python3',
+        image='apache/spark:3.5.9-java17-python3',
         cmds=['/bin/bash', '-c'],
         arguments=['/opt/spark/bin/spark-submit --master local[2] --driver-memory 1g '
                    '--conf spark.jars.ivy=/tmp/ivy --packages ' + PACKAGES + ' /opt/jobs/' + script],
