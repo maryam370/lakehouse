@@ -1,0 +1,35 @@
+server:
+  workers: 0
+  config:
+    query:
+      maxMemory: "2GB"
+coordinator:
+  jvm:
+    maxHeapSize: "2G"
+  config:
+    nodeScheduler:
+      includeCoordinator: true
+    query:
+      maxMemoryPerNode: "1GB"
+envFrom:
+  - secretRef:
+      name: s3-credentials
+  - secretRef:
+      name: platform-db
+catalogs:
+  lakehouse: |
+    connector.name=iceberg
+    iceberg.catalog.type=jdbc
+    iceberg.jdbc-catalog.catalog-name=lh
+    iceberg.jdbc-catalog.driver-class=org.postgresql.Driver
+    iceberg.jdbc-catalog.connection-url=jdbc:postgresql://platform-db.lakehouse.svc.cluster.local:5432/iceberg_catalog
+    iceberg.jdbc-catalog.connection-user=${ENV:PG_USER}
+    iceberg.jdbc-catalog.connection-password=${ENV:PG_PASSWORD}
+    iceberg.jdbc-catalog.default-warehouse-dir=s3://warehouse
+    iceberg.jdbc-catalog.schema-version=V1
+    fs.native-s3.enabled=true
+    s3.endpoint=http://seaweedfs.lakehouse.svc.cluster.local:8333
+    s3.region=us-east-1
+    s3.path-style-access=true
+    s3.aws-access-key=${ENV:AWS_ACCESS_KEY_ID}
+    s3.aws-secret-key=${ENV:AWS_SECRET_ACCESS_KEY}
