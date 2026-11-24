@@ -32,7 +32,7 @@ spec:
         - name: spark
           image: apache/spark:3.5.9-java17-python3
           command: ["/bin/bash", "-c"]
-          args: ["/opt/spark/bin/spark-submit --master 'local[2]' --driver-memory 1g --conf spark.jars.ivy=/tmp/ivy --packages $SPARK_PACKAGES /opt/jobs/streaming_bronze.py"]
+          args: ["/opt/spark/bin/spark-submit --master 'local[1]' --driver-memory 768m --conf spark.jars.ivy=/tmp/ivy --packages $SPARK_PACKAGES /opt/jobs/streaming_bronze.py"]
           env:
             - name: PYTHONPATH
               value: /opt/jobs
@@ -47,7 +47,7 @@ spec:
                 name: platform-db
           resources:
             limits:
-              memory: 2Gi
+              memory: 1280Mi
           volumeMounts:
             - name: jobs
               mountPath: /opt/jobs

@@ -28,6 +28,7 @@ src = (
         )
         .option("startingOffsets", "earliest")
         .option("failOnDataLoss", "false")
+        .option("maxOffsetsPerTrigger", 2000)
         .load()
 )
 

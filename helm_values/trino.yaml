@@ -2,15 +2,15 @@ server:
   workers: 0
   config:
     query:
-      maxMemory: "2GB"
+      maxMemory: "1GB"
 coordinator:
   jvm:
-    maxHeapSize: "2G"
+    maxHeapSize: "1536M"
   config:
     nodeScheduler:
       includeCoordinator: true
     query:
-      maxMemoryPerNode: "1GB"
+      maxMemoryPerNode: "512MB"
 envFrom:
   - secretRef:
       name: s3-credentials
