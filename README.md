@@ -129,6 +129,51 @@ Run-Spark "silver-to-gold" "silver_to_gold.py"
 kubectl wait --for=condition=complete job/silver-to-gold -n processing --timeout=15m
 ```
 
+### How the incremental Silver step works
+
+`bronze_to_silver.py` remembers how far it has read in each Kafka partition
+(table `lh.ops.bronze_offsets`) and only processes newer events. Running it twice in a
+row is safe: the second run prints `no new bronze events` and exits.
+The position is saved only after every table succeeded, so a failed run is just repeated.
+
+Need to rebuild Silver from all of Bronze (for example after changing a quality rule)?
+
+```powershell
+Run-Spark "bronze-to-silver" "bronze_to_silver.py --full-refresh"
+```
+
+New columns in the source are **not** added to Silver automatically. They are logged:
+`RESULT`/`WARNING schema drift` in the job log, and a row in `lh.ops.schema_drift`.
+Add the column to `spark\silver_rules.py` on purpose when you want it.
+
+### Prove Silver is correct
+
+`verify_silver.py` recomputes Silver from *all* of Bronze with the original logic and
+compares it with the real Silver and Rejects tables. Run it after Silver, in the
+transform phase (streaming off), so no new events sneak in between:
+
+```powershell
+Run-Spark "verify-silver" "verify_silver.py"
+kubectl wait --for=condition=complete job/verify-silver -n processing --timeout=15m
+kubectl logs job/verify-silver -n processing | Select-String RESULT
+```
+
+You want `RESULT PASS` for customers, products and orders. A `FAIL` also makes the job fail.
+
+### Table maintenance (small files, old snapshots)
+
+Streaming writes a small file every 30 seconds. `maintenance.py` compacts them, rewrites
+manifests, expires snapshots older than 3 days (always keeping the last 5) and deletes
+orphan files older than 3 days. Run it in the transform phase:
+
+```powershell
+Run-Spark "maintenance" "maintenance.py"
+kubectl wait --for=condition=complete job/maintenance -n processing --timeout=20m
+kubectl logs job/maintenance -n processing | Select-String RESULT
+```
+
+Airflow also has a daily `lakehouse_maintenance` DAG (03:00) for the same job.
+
 Row counts for every layer (a quick health check):
 
 ```powershell

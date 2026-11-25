@@ -1,5 +1,12 @@
-from pyspark.sql import functions as F, Window
+import sys
+
+from pyspark import StorageLevel
+from pyspark.sql import functions as F
 from common import get_spark
+from silver_rules import TABLES, expected_columns, latest_events, rule_expr
+
+CONSUMER = "bronze_to_silver"
+FULL_REFRESH = "--full-refresh" in sys.argv
 
 spark = get_spark("bronze_to_silver")
 
@@ -16,126 +23,108 @@ spark.sql("""
     ) USING iceberg
 """)
 
-TABLES = {
-    "customers": {
-        "pk": "customer_id",
-        "cols": """
-            customer_id INT,
-            full_name STRING,
-            email STRING,
-            city STRING,
-            created_at LONG
-        """,
-        "select": [
-            "customer_id",
-            "full_name",
-            "email",
-            "city",
-            "timestamp_micros(created_at) AS created_at"
-        ],
-        "rule": "email IS NOT NULL",
-        "reason": "missing email"
-    },
-    "products": {
-        "pk": "product_id",
-        "cols": """
-            product_id INT,
-            name STRING,
-            category STRING,
-            price STRING
-        """,
-        "select": [
-            "product_id",
-            "name",
-            "category",
-            "CAST(price AS DECIMAL(10,2)) AS price"
-        ],
-        "rule": "price > 0",
-        "reason": "price must be positive"
-    },
-    "orders": {
-        "pk": "order_id",
-        "cols": """
-            order_id INT,
-            customer_id INT,
-            product_id INT,
-            quantity INT,
-            amount STRING,
-            status STRING,
-            created_at LONG,
-            updated_at LONG
-        """,
-        "select": [
-            "order_id",
-            "customer_id",
-            "product_id",
-            "quantity",
-            "CAST(amount AS DECIMAL(10,2)) AS amount",
-            "status",
-            "timestamp_micros(created_at) AS created_at",
-            "timestamp_micros(updated_at) AS updated_at"
-        ],
-        "rule": "amount > 0 AND quantity > 0",
-        "reason": "amount and quantity must be positive"
-    }
-}
+# Where we stopped reading Bronze, per Kafka topic partition.
+spark.sql("""
+    CREATE TABLE IF NOT EXISTS lh.ops.bronze_offsets (
+        consumer STRING,
+        topic STRING,
+        kafka_partition INT,
+        last_offset BIGINT,
+        updated_at TIMESTAMP
+    ) USING iceberg
+""")
 
-bronze = (
-    spark.table("lh.bronze.cdc_raw")
+# Columns seen in the source that Silver does not know about yet.
+spark.sql("""
+    CREATE TABLE IF NOT EXISTS lh.ops.schema_drift (
+        table_name STRING,
+        column_name STRING,
+        first_seen TIMESTAMP
+    ) USING iceberg
+""")
+
+if FULL_REFRESH:
+    print("FULL REFRESH requested: clearing watermark")
+    spark.sql(f"DELETE FROM lh.ops.bronze_offsets WHERE consumer = '{CONSUMER}'")
+
+# ---- decide which offsets to process in this run ---------------------------
+bronze = spark.table("lh.bronze.cdc_raw")
+
+high = (
+    bronze.groupBy("topic", "kafka_partition")
+    .agg(F.max("kafka_offset").alias("high"))
+)
+
+low = (
+    spark.table("lh.ops.bronze_offsets")
+    .where(F.col("consumer") == CONSUMER)
+    .select("topic", "kafka_partition", F.col("last_offset").alias("low"))
+)
+
+range_rows = (
+    high.join(low, ["topic", "kafka_partition"], "left")
+    .withColumn("low", F.coalesce(F.col("low"), F.lit(-1).cast("long")))
+    .where("high > low")
+    .collect()
+)
+
+if not range_rows:
+    print("RESULT no new bronze events, nothing to do")
+    spark.stop()
+    sys.exit(0)
+
+ranges = spark.createDataFrame(
+    [(r["topic"], int(r["kafka_partition"]), int(r["low"]), int(r["high"])) for r in range_rows],
+    "topic string, kafka_partition int, low long, high long"
+)
+
+# Fixed upper bound: events that arrive while this job runs wait for the next run.
+new_events = (
+    bronze
+    .join(F.broadcast(ranges), ["topic", "kafka_partition"])
+    .where((F.col("kafka_offset") > F.col("low")) & (F.col("kafka_offset") <= F.col("high")))
     .where("value IS NOT NULL")
 )
 
+print("RESULT processing offsets:",
+      [(r["topic"], int(r["kafka_partition"]), int(r["low"]), int(r["high"])) for r in range_rows])
+
 for name, t in TABLES.items():
     pk = t["pk"]
+    target = f"lh.silver.{name}"
+    topic_events = new_events.where(F.col("topic") == f"shop.public.{name}")
 
-    envelope = (
-        "op STRING, "
-        "ts_ms LONG, "
-        "before STRUCT<%s>, "
-        "after STRUCT<%s>"
-    ) % (t["cols"], t["cols"])
-
-    ev = (
-        bronze
-        .where(F.col("topic") == f"shop.public.{name}")
-        .select(
-            "kafka_offset",
-            F.from_json("value", envelope).alias("e")
-        )
-        .select(
-            "kafka_offset",
-            "e.op",
-            "e.ts_ms",
-            F.when(
-                F.col("e.op") == "d",
-                F.col("e.before")
+    # Schema drift: fields in the source payload that we do not map yet.
+    seen = (
+        topic_events
+        .select(F.map_keys(
+            F.from_json("value", "struct<after:map<string,string>>").getField("after")
+        ).alias("ks"))
+        .select(F.explode("ks").alias("c"))
+        .distinct()
+        .collect()
+    )
+    unknown = sorted({r["c"] for r in seen} - set(expected_columns(t)))
+    if unknown:
+        print("WARNING schema drift in", name, "- unmapped columns:", unknown)
+        drift = (
+            spark.createDataFrame(
+                [(name, c) for c in unknown],
+                "table_name string, column_name string"
             )
-            .otherwise(F.col("e.after"))
-            .alias("row")
+            .withColumn("first_seen", F.current_timestamp())
         )
-    )
-
-    # Keep only the newest event for each primary key
-    w = (
-        Window
-        .partitionBy(f"row.{pk}")
-        .orderBy(
-            F.col("ts_ms").desc(),
-            F.col("kafka_offset").desc()
+        known = spark.table("lh.ops.schema_drift").select("table_name", "column_name")
+        (
+            drift.join(known, ["table_name", "column_name"], "left_anti")
+            .writeTo("lh.ops.schema_drift")
+            .append()
         )
-    )
 
-    latest = (
-        ev
-        .withColumn("rn", F.row_number().over(w))
-        .where("rn = 1")
-    )
+    # Newest event per key in this batch. Persisted so every step below sees the same rows.
+    latest = latest_events(new_events, name, t).persist(StorageLevel.MEMORY_AND_DISK)
 
-    deleted = (
-        latest
-        .where("op = 'd'")
-        .select("row.*")
-    )
+    deleted = latest.where("op = 'd'").select("row.*")
 
     typed = (
         latest
@@ -144,12 +133,9 @@ for name, t in TABLES.items():
         .selectExpr(*t["select"])
     )
 
-    ok = f"coalesce(({t['rule']}), false)"
-
+    ok = rule_expr(t)
     good = typed.where(ok)
     bad = typed.where(f"NOT {ok}")
-
-    target = f"lh.silver.{name}"
 
     if not spark.catalog.tableExists(target):
         (
@@ -167,32 +153,23 @@ for name, t in TABLES.items():
         .createOrReplaceTempView("gone")
     )
 
-    spark.sql(
-        f"""
-        DELETE FROM {target}
-        WHERE {pk} IN (
-            SELECT {pk}
-            FROM gone
-        )
-        """
-    )
+    spark.sql(f"DELETE FROM {target} WHERE {pk} IN (SELECT {pk} FROM gone)")
 
-    spark.sql(
-        f"""
+    spark.sql(f"""
         MERGE INTO {target} t
         USING upd u
         ON t.{pk} = u.{pk}
         WHEN MATCHED THEN UPDATE SET *
         WHEN NOT MATCHED THEN INSERT *
-        """
-    )
+    """)
 
-    spark.sql(
-        f"""
+    latest.select(F.col(f"row.{pk}").cast("string").alias("pk")).createOrReplaceTempView("touched")
+
+    spark.sql(f"""
         DELETE FROM lh.ops.rejects
         WHERE table_name = '{name}'
-        """
-    )
+          AND pk IN (SELECT pk FROM touched)
+    """)
 
     (
         bad.select(
@@ -206,11 +183,28 @@ for name, t in TABLES.items():
         .append()
     )
 
-    print(
-        "RESULT",
-        name,
-        "good rows:",
-        good.count(),
-        "rejected rows:",
-        bad.count()
+    print("RESULT", name, "good rows:", good.count(), "rejected rows:", bad.count(),
+          "deleted keys:", deleted.count())
+
+    latest.unpersist()
+
+(
+    spark.createDataFrame(
+        [(CONSUMER, r["topic"], int(r["kafka_partition"]), int(r["high"])) for r in range_rows],
+        "consumer string, topic string, kafka_partition int, last_offset long"
     )
+    .withColumn("updated_at", F.current_timestamp())
+    .createOrReplaceTempView("wm_new")
+)
+
+spark.sql("""
+    MERGE INTO lh.ops.bronze_offsets t
+    USING wm_new s
+    ON t.consumer = s.consumer
+       AND t.topic = s.topic
+       AND t.kafka_partition = s.kafka_partition
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+""")
+
+print("RESULT watermark advanced")

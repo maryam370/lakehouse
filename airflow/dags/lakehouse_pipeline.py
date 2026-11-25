@@ -40,3 +40,14 @@ with DAG(
     silver = spark_task('bronze_to_silver', 'bronze_to_silver.py')
     gold = spark_task('silver_to_gold', 'silver_to_gold.py')
     silver >> gold
+
+# Daily housekeeping: compact small files, expire old snapshots, delete orphan files.
+with DAG(
+    dag_id='lakehouse_maintenance',
+    start_date=datetime(2026, 1, 1),
+    schedule='0 3 * * *',
+    catchup=False,
+    max_active_runs=1,
+    tags=['lakehouse', 'maintenance'],
+) as maintenance_dag:
+    spark_task('iceberg_maintenance', 'maintenance.py')
