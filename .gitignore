@@ -1,0 +1,13 @@
+# Python environment and cache
+.venv/
+__pycache__/
+*.pyc
+
+# OpenTofu (Step 9): downloaded plug-ins and state
+tofu/.terraform/
+tofu/*.tfstate
+tofu/*.tfstate.*
+
+# Logs and editor files
+*.log
+.vscode/

@@ -1,4 +1,8 @@
 
+fernetKey: X0fdCHQwOyMP7xL5xjUak-7FDG-q63KjoF-0HhAJu08=
+apiSecretKey: 4Y4imu3luzV7a0VFbNLOUA5OUQeYPV3h9c1iFm3ZMtg=
+jwtSecret: 59JPBQNoEqvHMkGFQmDDKwF6Ah7xSpiNsE4n9zLpYVY=
+
 executor: KubernetesExecutor
 
 postgresql:

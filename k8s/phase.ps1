@@ -18,10 +18,17 @@ foreach ($p in $all) {
 }
 
 # Trino (helm release) and Airflow: only in 'query' / never during ingest
-$trino = kubectl get deploy -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' | Select-String -Pattern 'trino'
+$trino = kubectl get deploy -A --no-headers `
+  -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name |
+  Select-String trino
 foreach ($t in $trino) {
-  $ns,$name = $t.ToString().Split('/')
-  $n = if ($Phase -eq 'query') { 1 } else { 0 }
-  kubectl scale deploy/$name -n $ns --replicas=$n
+    $parts = $t.ToString().Trim() -split '\s+'
+
+    $ns = $parts[0]
+    $name = $parts[1]
+
+    $n = if ($Phase -eq 'query') { 1 } else { 0 }
+
+    kubectl scale deploy/$name -n $ns --replicas=$n
 }
 Write-Host "Phase '$Phase' applied. Check: kubectl top nodes"

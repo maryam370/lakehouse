@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trino
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://trinodb.github.io/charts
+      chart: trino
+      targetRevision: 1.45.0
+      helm:
+        releaseName: trino
+        valueFiles:
+          - $values/helm-values/trino.yaml
+    - repoURL: https://github.com/maryam370/lakehouse.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serving
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airflow
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://airflow.apache.org
+      chart: airflow
+      targetRevision: 1.21.0
+      helm:
+        releaseName: airflow
+        valueFiles:
+          - $values/helm-values/airflow.yaml
+    - repoURL: https://github.com/maryam370/lakehouse.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: orchestration
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
