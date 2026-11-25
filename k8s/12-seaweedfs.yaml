@@ -28,7 +28,7 @@ spec:
       spec:
         containers:
         - name: seaweedfs
-          image: chrislusf/seaweedfs:latest
+          image: chrislusf/seaweedfs:4.55
           args: ["server", "-dir=/data", "-s3", "master.volumeSizeLimitMB=1024"]
           envFrom:
             - secretRef:
@@ -36,6 +36,22 @@ spec:
           ports:
             - containerPort: 8333
             - containerPort: 9333
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 768Mi
+          readinessProbe:
+            tcpSocket:
+              port: 8333
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9333
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 6
           volumeMounts:
             - name: data
               mountPath: /data
@@ -70,7 +86,7 @@ spec:
       restartPolicy: OnFailure
       containers:
       - name: aws-cli
-        image: amazon/aws-cli:latest
+        image: amazon/aws-cli:2.42.3
         envFrom:
           - secretRef:
               name: s3-credentials

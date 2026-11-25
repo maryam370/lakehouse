@@ -12,9 +12,9 @@ spec:
       helm:
         releaseName: trino
         valueFiles:
-          - $values/helm-values/trino.yaml
+          - $values/helm_values/trino.yaml
     - repoURL: https://github.com/maryam370/lakehouse.git
-      targetRevision: main
+      targetRevision: master
       ref: values
   destination:
     server: https://kubernetes.default.svc
@@ -38,9 +38,9 @@ spec:
       helm:
         releaseName: airflow
         valueFiles:
-          - $values/helm-values/airflow.yaml
+          - $values/helm_values/airflow.yaml
     - repoURL: https://github.com/maryam370/lakehouse.git
-      targetRevision: main
+      targetRevision: master
       ref: values
   destination:
     server: https://kubernetes.default.svc

@@ -36,12 +36,27 @@ spec:
               value: "1"
             - name: STATUS_STORAGE_REPLICATION_FACTOR
               value: "1"
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xms256m -Xmx640m"
           readinessProbe:
             httpGet:
               path: /
               port: 8083
             initialDelaySeconds: 20
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8083
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 150m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
 --- 
 apiVersion: v1
 kind: Service

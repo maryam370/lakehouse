@@ -14,7 +14,7 @@ def spark_task(task_id, script):
         namespace='processing',
         image='apache/spark:3.5.9-java17-python3',
         cmds=['/bin/bash', '-c'],
-        arguments=['/opt/spark/bin/spark-submit --master local[2] --driver-memory 1g '
+        arguments=['/opt/spark/bin/spark-submit --master local[1] --driver-memory 768m '
                    '--conf spark.jars.ivy=/tmp/ivy --packages ' + PACKAGES + ' /opt/jobs/' + script],
         env_vars={'PYTHONPATH': '/opt/jobs', 'AWS_REGION': 'us-east-1'},
         env_from=[
@@ -23,7 +23,7 @@ def spark_task(task_id, script):
         ],
         volumes=[k8s.V1Volume(name='jobs', config_map=k8s.V1ConfigMapVolumeSource(name='spark-jobs'))],
         volume_mounts=[k8s.V1VolumeMount(name='jobs', mount_path='/opt/jobs')],
-        container_resources=k8s.V1ResourceRequirements(limits={'memory': '2Gi'}),
+        container_resources=k8s.V1ResourceRequirements(limits={'memory': '1280Mi'}),
         in_cluster=True,
         get_logs=True,
         on_finish_action='delete_succeeded_pod',

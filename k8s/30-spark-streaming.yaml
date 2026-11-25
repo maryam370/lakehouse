@@ -46,6 +46,9 @@ spec:
             - secretRef:
                 name: platform-db
           resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
             limits:
               memory: 1280Mi
           volumeMounts:
